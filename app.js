@@ -214,7 +214,45 @@
     }
   };
 
+  let pendingActions = [];
+  function runActions(list) {
+    const NB = window.AndroidBridge;
+    let end = false;
+    for (const a of list) {
+      try {
+        if (a.name === 'new_chat') {
+          S.history = []; save(); renderHistory(); toast('New chat');
+        } else if (a.name === 'close') {
+          end = true;
+        } else if (a.name === 'switch_model') {
+          const i = a.arg.indexOf('/');
+          const pid = (i < 0 ? a.arg : a.arg.slice(0, i)).trim().toLowerCase();
+          const model = i < 0 ? '' : a.arg.slice(i + 1).trim();
+          if (!(pid in L.PROVIDERS)) { toast('Unknown provider: ' + pid); continue; }
+          if (pid !== 'custom' && !S.providers[pid].key) { toast('No API key saved for ' + L.PROVIDERS[pid].label); continue; }
+          S.provider = pid;
+          if (model) S.providers[pid].model = model;
+          save(); updateChip(); syncSwitcher();
+          toast('Switched to ' + L.PROVIDERS[pid].label + (model ? ' · ' + model : ''));
+        } else if (NB && NB.runAction) {
+          const res = JSON.parse(NB.runAction(JSON.stringify(a)));
+          toast(res.message || (res.ok ? 'Done' : 'Could not do that'), 3500);
+          if (res.ok && res.leave) end = true;
+        } else {
+          toast('That action only works in the Android app');
+        }
+      } catch (e) { toast('Action failed: ' + ((e && e.message) || e)); }
+    }
+    if (end) {
+      stopAll();
+      if (NB && NB.closeOverlay) NB.closeOverlay();
+    }
+    return end;
+  }
+
   function onSpeechIdle() {
+    const acts = pendingActions; pendingActions = [];
+    if (acts.length && runActions(acts)) return;
     if (active && S.handsFree) listen();
     else { setActive(false); setState('idle'); }
   }
@@ -299,6 +337,7 @@
     currentCtl = ctl;
     const bubble = addBubble('assistant', '…');
     const chunker = L.createChunker();
+    const af = L.createActionFilter();
     let full = '', spoke = false;
     const speak = parts => {
       for (const s of parts) {
@@ -308,7 +347,7 @@
     };
 
     try {
-      const req = L.buildRequest(S.provider, cfg(), S.history, S.system, { search: S.webSearch });
+      const req = L.buildRequest(S.provider, cfg(), S.history, S.system + (S.actions !== false ? L.actionPrompt(!!window.AndroidBridge) : ''), { search: S.webSearch });
       req.init.signal = ctl.signal;
       const resp = await fetch(req.url, req.init);
       if (!resp.ok) throw new Error(L.friendlyError(resp.status, await resp.text()));
@@ -317,8 +356,13 @@
       const sse = L.createSSEParser();
       const handle = payloads => {
         for (const p of payloads) {
-          const t = L.extractDelta(req.kind, p);
-          if (!t) continue;
+          const raw = L.extractDelta(req.kind, p);
+          emit(S.actions !== false ? af.push(raw || '') : raw);
+        }
+      };
+      const emit = t => {
+        {
+          if (!t) return;
           full += t;
           bubble.textContent = full;
           $('caption').textContent = full;
@@ -333,11 +377,14 @@
       }
       handle(sse.feed(dec.decode()));
       handle(sse.flush());
-      if (!full.trim()) throw new Error('The model sent back an empty reply.');
+      if (S.actions !== false) emit(af.flush());
+      if (!full.trim() && !af.actions.length) throw new Error('The model sent back an empty reply.');
       speak(chunker.flush());
       if (currentCtl === ctl) currentCtl = null;
-      S.history.push({ role: 'assistant', content: full });
+      if (full.trim()) S.history.push({ role: 'assistant', content: full });
+      else { S.history.pop(); bubble.remove(); }
       save();
+      pendingActions = af.actions.slice();
       Speaker.finish();
     } catch (err) {
       if (currentCtl === ctl) currentCtl = null;
@@ -516,6 +563,7 @@
     $('optAutoStart').checked = S.autoStart;
     $('optWake').checked = S.wakeLock;
     $('optSearch').checked = S.webSearch !== false;
+    $('optActions').checked = S.actions !== false;
     $('optTranscript').checked = S.showTranscript;
     $('systemPrompt').value = S.system;
   }
@@ -540,6 +588,7 @@
   $('lang').addEventListener('change', e => { S.lang = e.target.value.trim() || 'en-AU'; save(); fillVoiceSelect(); });
   $('optHandsFree').addEventListener('change', e => { S.handsFree = e.target.checked; save(); });
   $('optAutoStart').addEventListener('change', e => { S.autoStart = e.target.checked; save(); });
+  $('optActions').addEventListener('change', e => { S.actions = e.target.checked; save(); });
   $('optSearch').addEventListener('change', e => {
     S.webSearch = e.target.checked; save();
     if (S.webSearch && !L.searchSupport(S.provider, cfg().model)) toast('Web search is not available for ' + L.PROVIDERS[S.provider].label + ' with this model', 4500);
