@@ -1,4 +1,4 @@
-# Voice Assistant (no server)
+# Voice Assistant 
 
 A voice app for your Android phone that talks to the AI model of your choice using your own API keys. Everything runs in Chrome on the phone. The files are static, so there is nothing to run or maintain; they just need to be reachable at a web address once.
 
@@ -36,15 +36,6 @@ The installed app opens listening straight away. Anything on your phone that can
 - **Hardware button** (side key, action key, Bixby or similar): in your phone's settings, look for the button or side key options and set it to open an app, then choose Voice. Exact wording depends on the phone.
 - **Long-press the app icon** for a "Talk now" shortcut.
 - **Home-screen shortcut or automation app** (Tasker, MacroDroid): have it open the app.
-
-## Honest limits
-
-- **The screen must be on and the app in front.** Chrome only allows the microphone while the page is visible. Leaving the app stops listening. The app keeps the screen awake while you talk (you can turn that off).
-- **Android may want one tap.** If it refuses to start the mic or play sound without a touch, a big "Tap to start" button appears. After that tap it is hands-free.
-- **Speech recognition uses Chrome's own service** (Google's), so it needs a connection and the text is processed by Google, not by the model provider.
-- **API use is billed by your provider**, separately from any chat subscription. Set a spending limit on each key.
-- **Keys live in the browser.** Use keys you can revoke, and don't use this on a shared device.
-- Model names come from each provider's model list. If a provider changes its API, a request may fail with a plain-English error shown on screen.
 
 ## Files
 
