@@ -583,12 +583,19 @@
     updateChip();
     setState('idle');
     const params = new URLSearchParams(location.search);
+    const NB = window.AndroidBridge;
+    if (params.get('overlay') === '1') document.body.classList.add('overlay');
+    $('ovClose').addEventListener('click', () => { stopAll(); if (NB && NB.closeOverlay) NB.closeOverlay(); });
+    $('ovOpen').addEventListener('click', () => { if (NB && NB.openFull) NB.openFull(); });
+    window.__voiceStop = () => { try { stopAll(); } catch (e) { /* ignore */ } };
+    window.__voiceListen = () => { if (S.provider === 'custom' || cfg().key) launchListen(); };
     const wantListen = params.get('listen') === '1';
-    if (params.has('listen') || params.has('settings')) {
+    if (params.has('settings') || (params.has('listen') && params.get('overlay') !== '1')) {
       try { history.replaceState(null, '', location.pathname); } catch (e) { /* ignore */ }
     }
     if (params.get('settings') === '1') { openSettings(); return; }
     if (S.provider !== 'custom' && !cfg().key) {
+      if (NB && document.body.classList.contains('overlay') && NB.openFull) { NB.openFull(); return; }
       openSettings();
       toast('Add an API key to get started', 5000);
       return;
@@ -597,7 +604,7 @@
     if (wantListen && S.autoStart) launchListen();
   }
 
-  if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+  if ('serviceWorker' in navigator && location.protocol !== 'file:' && !window.AndroidBridge) {
     navigator.serviceWorker.register('sw.js').catch(() => { /* offline cache is optional */ });
   }
   boot();
