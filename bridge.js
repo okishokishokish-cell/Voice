@@ -79,6 +79,18 @@
     }
   };
 
+  /* ---- network calls made by the phone (no browser CORS limits), used for web search ---- */
+  var httpWaiting = {};
+  var httpSeq = 0;
+  window.nativeFetch = function (url, init) {
+    init = init || {};
+    return new Promise(function (resolve, reject) {
+      var id = 'h' + (++httpSeq);
+      httpWaiting[id] = { resolve: resolve, reject: reject };
+      NB.httpPost(id, String(url), JSON.stringify(init.headers || {}), String(init.body || ''));
+    });
+  };
+
   /* ---- events coming from the native side ---- */
   window.__nativeVoice = {
     event: function (type, data) {
@@ -99,6 +111,21 @@
           if (sr) {
             if (sr.onerror) sr.onerror({ error: data });
             if (sr.onend) sr.onend();
+          }
+        } else if (type === 'http') {
+          var r = JSON.parse(data);
+          var w = httpWaiting[r.id];
+          if (w) {
+            delete httpWaiting[r.id];
+            if (r.error) { w.reject(new Error(r.error)); }
+            else {
+              w.resolve({
+                ok: r.status >= 200 && r.status < 300,
+                status: r.status,
+                text: function () { return Promise.resolve(r.body); },
+                json: function () { return Promise.resolve(JSON.parse(r.body)); }
+              });
+            }
           }
         } else if (type === 'ttsdone') {
           var u = speakMap[data];

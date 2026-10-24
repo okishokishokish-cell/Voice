@@ -134,6 +134,55 @@ public class VoiceBridge {
         host.openFull();
     }
 
+    // ---------------------------------------------------------------- network (DeepSeek search only)
+
+    private final java.util.concurrent.ExecutorService net = java.util.concurrent.Executors.newFixedThreadPool(2);
+
+    /** POSTs to the DeepSeek API from the phone, so the page is not limited by browser CORS rules. */
+    @JavascriptInterface
+    public void httpPost(final String id, final String url, final String headersJson, final String body) {
+        net.execute(() -> {
+            JSONObject out = new JSONObject();
+            try {
+                out.put("id", id);
+                Uri u = Uri.parse(url);
+                if (!"https".equals(u.getScheme()) || u.getHost() == null
+                        || !(u.getHost().equals("api.deepseek.com") || u.getHost().endsWith(".deepseek.com"))) {
+                    out.put("error", "Only DeepSeek addresses are allowed here");
+                } else {
+                    java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
+                    c.setRequestMethod("POST");
+                    c.setConnectTimeout(15000);
+                    c.setReadTimeout(30000);
+                    c.setDoOutput(true);
+                    JSONObject h = new JSONObject(headersJson);
+                    java.util.Iterator<String> keys = h.keys();
+                    while (keys.hasNext()) {
+                        String k = keys.next();
+                        c.setRequestProperty(k, h.getString(k));
+                    }
+                    try (java.io.OutputStream os = c.getOutputStream()) {
+                        os.write(body.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                    }
+                    int status = c.getResponseCode();
+                    java.io.InputStream is = status >= 400 ? c.getErrorStream() : c.getInputStream();
+                    java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+                    if (is != null) {
+                        byte[] buf = new byte[8192];
+                        int n;
+                        while ((n = is.read(buf)) > 0 && bos.size() < 2_000_000) bos.write(buf, 0, n);
+                        is.close();
+                    }
+                    out.put("status", status);
+                    out.put("body", bos.toString("UTF-8"));
+                }
+            } catch (Exception e) {
+                try { out.put("error", String.valueOf(e.getMessage())); } catch (Exception ignored) { }
+            }
+            emit("http", out.toString());
+        });
+    }
+
     // ---------------------------------------------------------------- phone actions
 
     /** Runs one assistant action. Takes {"name":..., "arg":...}, returns {"ok":bool,"message":str,"leave":bool}. */
@@ -369,6 +418,7 @@ public class VoiceBridge {
         main.post(() -> {
             destroyRecognizer();
             ttsPending.clear();
+            net.shutdown();
             if (tts != null) {
                 try { tts.stop(); tts.shutdown(); } catch (Exception ignored) { }
                 tts = null;
