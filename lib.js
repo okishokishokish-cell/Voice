@@ -53,6 +53,13 @@
     return out;
   }
 
+  /** Whether this provider/model can search the web with just a flag in the request. */
+  function searchSupport(providerId, model) {
+    if (providerId === 'anthropic' || providerId === 'google' || providerId === 'openrouter') return true;
+    if (providerId === 'openai') return /search/i.test(String(model || ''));
+    return false;
+  }
+
   function buildRequest(providerId, cfg, history, system, opts) {
     const p = PROVIDERS[providerId];
     if (!p) throw new Error('Unknown provider: ' + providerId);
@@ -66,6 +73,7 @@
     if (!base) throw new Error('Add a base URL for the custom provider in Settings.');
     const msgs = normalizeHistory(history);
     if (!msgs.length) throw new Error('Nothing to send.');
+    const useSearch = !!opts.search && searchSupport(providerId, model);
 
     if (p.kind === 'anthropic') {
       return {
@@ -80,8 +88,9 @@
             'anthropic-dangerous-direct-browser-access': 'true'
           },
           body: JSON.stringify({
-            model, max_tokens: opts.maxTokens || 1500, system: system || undefined,
-            messages: msgs, stream: true
+            model, max_tokens: opts.maxTokens || (useSearch ? 2500 : 1500), system: system || undefined,
+            messages: msgs, stream: true,
+            tools: useSearch ? [{ type: 'web_search_20250305', name: 'web_search', max_uses: 3 }] : undefined
           })
         }
       };
@@ -97,7 +106,8 @@
           headers: { 'content-type': 'application/json', 'x-goog-api-key': key },
           body: JSON.stringify({
             contents: msgs.map(x => ({ role: x.role === 'assistant' ? 'model' : 'user', parts: [{ text: x.content }] })),
-            systemInstruction: system ? { parts: [{ text: system }] } : undefined
+            systemInstruction: system ? { parts: [{ text: system }] } : undefined,
+            tools: useSearch ? [{ google_search: {} }] : undefined
           })
         }
       };
@@ -110,7 +120,14 @@
     return {
       kind: 'openai',
       url: base + '/chat/completions',
-      init: { method: 'POST', headers, body: JSON.stringify({ model, messages, stream: true }) }
+      init: {
+        method: 'POST', headers,
+        body: JSON.stringify({
+          model, messages, stream: true,
+          plugins: useSearch && providerId === 'openrouter' ? [{ id: 'web' }] : undefined,
+          web_search_options: useSearch && providerId === 'openai' ? {} : undefined
+        })
+      }
     };
   }
 
@@ -270,7 +287,7 @@
   }
 
   return {
-    PROVIDERS, baseUrl, normalizeHistory, buildRequest, modelListRequest, parseModelList,
+    PROVIDERS, baseUrl, normalizeHistory, buildRequest, searchSupport, modelListRequest, parseModelList,
     createSSEParser, extractDelta, createChunker, cleanForSpeech, friendlyError
   };
 });

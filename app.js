@@ -18,7 +18,7 @@
     return {
       provider: 'anthropic', providers, models: {}, system: DEFAULT_SYSTEM,
       lang: navigator.language || 'en-AU',
-      handsFree: true, autoStart: true, wakeLock: true, showTranscript: true,
+      handsFree: true, webSearch: true, autoStart: true, wakeLock: true, showTranscript: true,
       tts: { engine: 'browser', voice: '', rate: 1, oaVoice: 'alloy', oaModel: 'gpt-4o-mini-tts' },
       history: []
     };
@@ -308,7 +308,7 @@
     };
 
     try {
-      const req = L.buildRequest(S.provider, cfg(), S.history, S.system);
+      const req = L.buildRequest(S.provider, cfg(), S.history, S.system, { search: S.webSearch });
       req.init.signal = ctl.signal;
       const resp = await fetch(req.url, req.init);
       if (!resp.ok) throw new Error(L.friendlyError(resp.status, await resp.text()));
@@ -515,6 +515,7 @@
     $('optHandsFree').checked = S.handsFree;
     $('optAutoStart').checked = S.autoStart;
     $('optWake').checked = S.wakeLock;
+    $('optSearch').checked = S.webSearch !== false;
     $('optTranscript').checked = S.showTranscript;
     $('systemPrompt').value = S.system;
   }
@@ -539,6 +540,10 @@
   $('lang').addEventListener('change', e => { S.lang = e.target.value.trim() || 'en-AU'; save(); fillVoiceSelect(); });
   $('optHandsFree').addEventListener('change', e => { S.handsFree = e.target.checked; save(); });
   $('optAutoStart').addEventListener('change', e => { S.autoStart = e.target.checked; save(); });
+  $('optSearch').addEventListener('change', e => {
+    S.webSearch = e.target.checked; save();
+    if (S.webSearch && !L.searchSupport(S.provider, cfg().model)) toast('Web search is not available for ' + L.PROVIDERS[S.provider].label + ' with this model', 4500);
+  });
   $('optWake').addEventListener('change', e => { S.wakeLock = e.target.checked; save(); });
   $('optTranscript').addEventListener('change', e => { S.showTranscript = e.target.checked; save(); applyLayout(); });
   $('systemPrompt').addEventListener('change', e => { S.system = e.target.value.trim() || DEFAULT_SYSTEM; save(); });
