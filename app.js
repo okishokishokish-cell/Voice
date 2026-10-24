@@ -401,8 +401,19 @@
     }
     sel.value = S.provider;
   }
+  function syncBase() {
+    const p = L.PROVIDERS[S.provider];
+    $('swBase').value = cfg().base || '';
+    $('swBase').placeholder = p.base || 'https://your-host/v1';
+    $('swBaseLabel').textContent = S.provider === 'custom' ? 'Base URL (required)' : 'Base URL (optional, leave blank for default)';
+  }
+  function commitBase() {
+    cfg().base = $('swBase').value.trim().replace(/\/+$/, '');
+    save();
+  }
   function syncSwitcher() {
     fillProviderSelect();
+    syncBase();
     $('swModel').value = cfg().model || '';
     fillDatalist();
     $('swStatus').textContent = (S.provider !== 'custom' && !cfg().key)
@@ -430,7 +441,8 @@
     if ((cfg().key || S.provider === 'custom') && !(S.models[S.provider] || []).length) refreshModels(S.provider, true);
   });
   $('swModel').addEventListener('change', e => { cfg().model = e.target.value.trim(); save(); updateChip(); });
-  $('btnRefreshModels').addEventListener('click', () => refreshModels(S.provider, false));
+  $('swBase').addEventListener('change', commitBase);
+  $('btnRefreshModels').addEventListener('click', () => { commitBase(); refreshModels(S.provider, false); });
   $('btnMore').addEventListener('click', () => { $('switchSheet').hidden = true; openSettings(); });
 
   /* ---------- settings sheet ---------- */
