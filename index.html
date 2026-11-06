@@ -121,6 +121,22 @@
     <label class="check"><input type="checkbox" id="optWake"> Keep the screen on while talking</label>
     <label class="check"><input type="checkbox" id="optTranscript"> Show the written conversation</label>
 
+    <div id="wakeSection" hidden>
+      <h3>Wake phrase</h3>
+      <p class="note">Say a phrase to open the assistant hands-free. It listens on the phone using Picovoice Porcupine. Get a free access key at console.picovoice.ai, paste it here, type the phrase you want (at least three syllables works best, e.g. "Hey Bean") and tap Create. Needs internet once to create the phrase.</p>
+      <div class="field">
+        <label for="wakeKey">Picovoice access key</label>
+        <input id="wakeKey" type="password" autocomplete="off" autocapitalize="off" spellcheck="false">
+      </div>
+      <div class="field">
+        <label for="wakePhrase">Wake phrase</label>
+        <input id="wakePhrase" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Hey Bean">
+      </div>
+      <button id="btnWakeCreate" type="button" class="btn">Create wake phrase</button>
+      <label class="check"><input type="checkbox" id="optWakeOn"> Listen for the phrase in the background</label>
+      <div id="wakeStatus" class="note"></div>
+    </div>
+
     <h3>Assistant instructions</h3>
     <div class="field">
       <textarea id="systemPrompt" rows="5"></textarea>

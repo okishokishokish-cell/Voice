@@ -620,7 +620,42 @@
     $('optActions').checked = S.actions !== false;
     $('optTranscript').checked = S.showTranscript;
     $('systemPrompt').value = S.system;
+    syncWake();
   }
+
+  /* ---------- wake phrase (Android app only) ---------- */
+  function syncWake() {
+    const NB = window.AndroidBridge;
+    $('wakeSection').hidden = !(NB && NB.getWake);
+    if (!(NB && NB.getWake)) return;
+    try {
+      const w = JSON.parse(NB.getWake());
+      $('wakeKey').value = w.key || '';
+      $('wakePhrase').value = w.phrase || '';
+      $('optWakeOn').checked = !!w.enabled;
+      $('wakeStatus').textContent = w.trained ? 'Wake phrase ready: "' + w.phrase + '"' : 'No wake phrase created yet.';
+    } catch (e) { /* ignore */ }
+  }
+  window.__onWake = r => {
+    $('btnWakeCreate').disabled = false;
+    $('wakeStatus').textContent = r.message || (r.ok ? 'Done' : 'Failed');
+  };
+  $('btnWakeCreate').addEventListener('click', () => {
+    const NB = window.AndroidBridge;
+    const key = $('wakeKey').value.trim(), phrase = $('wakePhrase').value.trim();
+    if (!key || !phrase) { $('wakeStatus').textContent = 'Enter the access key and a phrase first.'; return; }
+    $('btnWakeCreate').disabled = true;
+    $('wakeStatus').textContent = 'Creating wake phrase…';
+    NB.trainWake(key, phrase);
+  });
+  $('optWakeOn').addEventListener('change', e => {
+    const NB = window.AndroidBridge;
+    if (!(NB && NB.setWake)) return;
+    const r = JSON.parse(NB.setWake(e.target.checked));
+    $('wakeStatus').textContent = r.message || '';
+    if (!r.ok) e.target.checked = !e.target.checked;
+  });
+
   function openSettings() { syncSettings(); $('settingsSheet').hidden = false; }
   function closeSettings() { $('settingsSheet').hidden = true; updateChip(); }
   $('settingsBtn').addEventListener('click', openSettings);

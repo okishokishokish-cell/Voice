@@ -112,6 +112,8 @@
             if (sr.onerror) sr.onerror({ error: data });
             if (sr.onend) sr.onend();
           }
+        } else if (type === 'wake') {
+          if (window.__onWake) window.__onWake(JSON.parse(data));
         } else if (type === 'http') {
           var r = JSON.parse(data);
           var w = httpWaiting[r.id];

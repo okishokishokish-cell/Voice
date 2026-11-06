@@ -134,6 +134,62 @@ public class VoiceBridge {
         host.openFull();
     }
 
+    // ---------------------------------------------------------------- wake phrase settings
+
+    @JavascriptInterface
+    public String getWake() {
+        android.content.SharedPreferences p = Wake.prefs(ctx);
+        try {
+            return new JSONObject()
+                    .put("enabled", p.getBoolean("enabled", false))
+                    .put("key", p.getString("key", ""))
+                    .put("phrase", p.getString("phrase", ""))
+                    .put("trained", Wake.trained(ctx))
+                    .toString();
+        } catch (Exception e) {
+            return "{}";
+        }
+    }
+
+    /** Creates the wake phrase model on the phone using Picovoice (needs internet once). */
+    @JavascriptInterface
+    public void trainWake(final String key, final String phrase) {
+        net.execute(() -> {
+            JSONObject out = new JSONObject();
+            try {
+                ai.picovoice.porcupine.Porcupine.trainWakeWordFromPhrase(
+                        key, Wake.file(ctx).getAbsolutePath(), "en", phrase);
+                Wake.prefs(ctx).edit().putString("key", key).putString("phrase", phrase).apply();
+                out.put("ok", true).put("message", "Wake phrase ready: \"" + phrase + "\". Now switch on background listening.");
+                // use the new phrase straight away if listening is already on
+                if (Wake.prefs(ctx).getBoolean("enabled", false)) syncWakeService();
+            } catch (Throwable e) {
+                try { out.put("ok", false).put("message", "Could not create the phrase: " + e.getMessage()); } catch (Exception ignored) { }
+            }
+            emit("wake", out.toString());
+        });
+    }
+
+    @JavascriptInterface
+    public String setWake(boolean enabled) {
+        if (enabled) {
+            if (!Wake.trained(ctx) || Wake.prefs(ctx).getString("key", "").isEmpty())
+                return result(false, "Create a wake phrase first.", false);
+            if (ctx.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED)
+                return result(false, "Allow the microphone first.", false);
+        }
+        Wake.prefs(ctx).edit().putBoolean("enabled", enabled).apply();
+        syncWakeService();
+        return result(true, enabled ? "Listening for your phrase in the background." : "Background listening off.", false);
+    }
+
+    private void syncWakeService() {
+        Intent i = new Intent(ctx, OverlayService.class).setAction(OverlayService.ACTION_WAKE_SYNC);
+        try {
+            androidx.core.content.ContextCompat.startForegroundService(ctx, i);
+        } catch (Exception ignored) { }
+    }
+
     // ---------------------------------------------------------------- network (DeepSeek search only)
 
     private final java.util.concurrent.ExecutorService net = java.util.concurrent.Executors.newFixedThreadPool(2);

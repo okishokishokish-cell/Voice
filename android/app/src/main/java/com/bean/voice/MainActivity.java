@@ -21,7 +21,9 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         if (OverlayService.running) {
-            stopService(new Intent(this, OverlayService.class));
+            // already alive (open, or listening for the wake phrase): open it, or close it if it is open
+            ContextCompat.startForegroundService(this,
+                    new Intent(this, OverlayService.class).setAction(OverlayService.ACTION_TOGGLE));
             finish();
             return;
         }
@@ -39,7 +41,8 @@ public class MainActivity extends Activity {
             requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO, "android.permission.POST_NOTIFICATIONS"}, REQ_PERMS);
             return;
         }
-        ContextCompat.startForegroundService(this, new Intent(this, OverlayService.class));
+        ContextCompat.startForegroundService(this,
+                new Intent(this, OverlayService.class).setAction(OverlayService.ACTION_SHOW));
         finish();
     }
 

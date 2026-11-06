@@ -17,12 +17,25 @@ import android.view.KeyEvent;
 import android.view.WindowManager;
 import android.webkit.WebView;
 import android.widget.FrameLayout;
+import android.widget.Toast;
 
 import androidx.core.app.ServiceCompat;
 
-/** Foreground service that shows the assistant as a floating panel at the top of the screen. */
+import ai.picovoice.porcupine.PorcupineException;
+import ai.picovoice.porcupine.PorcupineManager;
+
+/**
+ * Foreground service. It shows the assistant as a floating panel at the top of the screen and,
+ * when a wake phrase is set up, listens for it in the background while the panel is hidden.
+ */
 public class OverlayService extends Service implements VoiceBridge.Host {
 
+    public static final String ACTION_SHOW = "com.bean.voice.SHOW";
+    public static final String ACTION_HIDE = "com.bean.voice.HIDE";
+    public static final String ACTION_TOGGLE = "com.bean.voice.TOGGLE";
+    public static final String ACTION_WAKE_SYNC = "com.bean.voice.WAKE_SYNC";
+
+    /** True while the service is alive (panel showing or listening for the wake phrase). */
     public static volatile boolean running = false;
 
     private static final String CHANNEL = "voice_overlay";
@@ -32,6 +45,8 @@ public class OverlayService extends Service implements VoiceBridge.Host {
     private FrameLayout root;
     private WebView web;
     private VoiceBridge bridge;
+    private boolean shown = false;
+    private PorcupineManager porcupine;
 
     @Override
     public IBinder onBind(Intent intent) {
@@ -43,21 +58,42 @@ public class OverlayService extends Service implements VoiceBridge.Host {
         super.onCreate();
         running = true;
         startAsForeground();
-        try {
-            showPanel();
-        } catch (Exception e) {
-            stopSelf();
-        }
     }
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        String a = intent == null ? null : intent.getAction();
+        if (a == null) {
+            if (!shown && !Wake.ready(this)) stopSelf();
+            return START_NOT_STICKY;
+        }
+        switch (a) {
+            case ACTION_SHOW:
+                if (!shown) showNow();
+                break;
+            case ACTION_HIDE:
+                if (shown) hideNow();
+                break;
+            case ACTION_TOGGLE:
+                if (shown) hideNow(); else showNow();
+                break;
+            case ACTION_WAKE_SYNC:
+                if (!shown) {
+                    stopWake();
+                    if (Wake.ready(this)) startWake(); else stopSelf();
+                }
+                break;
+            default:
+                break;
+        }
         return START_NOT_STICKY;
     }
 
+    // ---------------------------------------------------------------- notification
+
     private void startAsForeground() {
         NotificationManager nm = getSystemService(NotificationManager.class);
-        NotificationChannel ch = new NotificationChannel(CHANNEL, "Voice overlay", NotificationManager.IMPORTANCE_LOW);
+        NotificationChannel ch = new NotificationChannel(CHANNEL, "Voice assistant", NotificationManager.IMPORTANCE_LOW);
         nm.createNotificationChannel(ch);
 
         Intent toggle = new Intent(this, MainActivity.class);
@@ -66,15 +102,64 @@ public class OverlayService extends Service implements VoiceBridge.Host {
 
         Notification n = new Notification.Builder(this, CHANNEL)
                 .setSmallIcon(android.R.drawable.ic_btn_speak_now)
-                .setContentTitle("Voice assistant is open")
-                .setContentText("Tap to close")
+                .setContentTitle("Voice assistant")
+                .setContentText("Tap to open or close")
                 .setContentIntent(pi)
                 .setOngoing(true)
                 .build();
         ServiceCompat.startForeground(this, 1, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE);
     }
 
-    private void showPanel() {
+    // ---------------------------------------------------------------- wake phrase
+
+    private void startWake() {
+        if (porcupine != null || !Wake.ready(this)) return;
+        try {
+            porcupine = new PorcupineManager.Builder()
+                    .setAccessKey(Wake.prefs(this).getString("key", ""))
+                    .setKeywordPath(Wake.file(this).getAbsolutePath())
+                    .setSensitivity(0.65f)
+                    .build(this, idx -> main.post(() -> {
+                        if (!shown) showNow();
+                    }));
+            porcupine.start();
+        } catch (PorcupineException e) {
+            porcupine = null;
+            Toast.makeText(this, "Wake phrase failed: " + e.getMessage(), Toast.LENGTH_LONG).show();
+            stopSelf();
+        }
+    }
+
+    private void stopWake() {
+        PorcupineManager p = porcupine;
+        porcupine = null;
+        if (p != null) {
+            try { p.stop(); } catch (Exception ignored) { }
+            try { p.delete(); } catch (Exception ignored) { }
+        }
+    }
+
+    // ---------------------------------------------------------------- panel
+
+    private void showNow() {
+        stopWake(); // free the microphone for speech recognition
+        try {
+            addPanel();
+            shown = true;
+        } catch (Exception e) {
+            removePanel();
+            shown = false;
+            if (Wake.ready(this)) startWake(); else stopSelf();
+        }
+    }
+
+    private void hideNow() {
+        removePanel();
+        shown = false;
+        if (Wake.ready(this)) startWake(); else stopSelf();
+    }
+
+    private void addPanel() {
         wm = (WindowManager) getSystemService(WINDOW_SERVICE);
         final float d = getResources().getDisplayMetrics().density;
         final int height = (int) (getResources().getDisplayMetrics().heightPixels * 0.48f);
@@ -114,24 +199,7 @@ public class OverlayService extends Service implements VoiceBridge.Host {
         web.loadUrl(VoiceBridge.BASE_URL + "index.html?overlay=1&listen=1");
     }
 
-    @Override
-    public void closeOverlay() {
-        main.post(this::stopSelf);
-    }
-
-    @Override
-    public void openFull() {
-        main.post(() -> {
-            Intent i = new Intent(this, FullActivity.class);
-            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            startActivity(i);
-            stopSelf();
-        });
-    }
-
-    @Override
-    public void onDestroy() {
-        running = false;
+    private void removePanel() {
         try {
             if (root != null && wm != null) wm.removeView(root);
         } catch (Exception ignored) { }
@@ -142,6 +210,29 @@ public class OverlayService extends Service implements VoiceBridge.Host {
         if (bridge != null) bridge.shutdown();
         root = null;
         web = null;
+        bridge = null;
+    }
+
+    @Override
+    public void closeOverlay() {
+        main.post(() -> { if (shown) hideNow(); });
+    }
+
+    @Override
+    public void openFull() {
+        main.post(() -> {
+            Intent i = new Intent(this, FullActivity.class);
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(i);
+            if (shown) hideNow();
+        });
+    }
+
+    @Override
+    public void onDestroy() {
+        running = false;
+        stopWake();
+        removePanel();
         super.onDestroy();
     }
 }
